@@ -1,0 +1,23 @@
+name: CI for Sentinel policies
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  sentinel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+      - name: Run Sentinel tests
+        uses: hashicorp/sentinel-github-actions@master
+        with:
+          stl_actions_version: 0.26.2
+          stl_actions_subcommand: "test"
+          stl_actions_working_dir: "."
+          stl_actions_comment: true
+        # env:
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
