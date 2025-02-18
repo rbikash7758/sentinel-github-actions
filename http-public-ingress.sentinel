@@ -1,0 +1,18 @@
+import "tfplan/v2" as tfplan
+
+ingress_rules = filter tfplan.resource_changes as _, rc {
+	rc.type is "aws_vpc_security_group_ingress_rule" and
+		rc.change.actions is ["create"]
+}
+
+public_http_ingress = filter ingress_rules as _, ingress_rule {
+	ingress_rule.change.after.cidr_ipv4 is "0.0.0.0/0" and
+		80 in range(
+			ingress_rule.change.after.from_port,
+			ingress_rule.change.after.to_port + 1,
+		)
+}
+
+main = rule {
+	length(public_http_ingress) is 0
+}

@@ -1,0 +1,15 @@
+resource_changes = {
+    "aws_vpc_security_group_ingress_rule.http": {
+        "type": "aws_vpc_security_group_ingress_rule",
+        "change": {
+            "actions": [
+                "create",
+            ],
+            "after": {
+                "cidr_ipv4": "0.0.0.0/0",
+                "from_port": 0,
+                "to_port": 1024,
+            },
+        },
+    },
+}
