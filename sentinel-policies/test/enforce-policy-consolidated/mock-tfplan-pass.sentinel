@@ -1,0 +1,27 @@
+# Mock data for PASSING provider validation test
+# Only allowed providers should be present
+
+resource_changes = {}
+
+raw = {
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.terraform.io/hashicorp/aws",
+      },
+      "kubernetes": {
+        "name": "kubernetes", 
+        "full_name": "registry.terraform.io/hashicorp/kubernetes",
+      },
+    },
+    "root_module": {
+      "resources": [],
+      "module_calls": {
+        "example": {
+          "source": "git::https://github.com/rbikash7758/terraform-aws-ec2.git?ref=v1.0.0-ga",
+        },
+      },
+    },
+  },
+}

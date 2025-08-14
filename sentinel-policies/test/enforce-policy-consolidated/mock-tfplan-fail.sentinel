@@ -1,0 +1,27 @@
+# Mock data for FAILING provider validation test
+# Contains disallowed providers that should cause policy to fail
+
+resource_changes = {}
+
+raw = {
+  "configuration": {
+    "provider_config": {
+      "datadog": {
+        "name": "datadog",
+        "full_name": "registry.terraform.io/datadog/datadog",
+      },
+      "newrelic": {
+        "name": "newrelic",
+        "full_name": "registry.terraform.io/newrelic/newrelic",
+      },
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.terraform.io/hashicorp/aws",
+      },
+    },
+    "root_module": {
+      "resources": [],
+      "module_calls": {},
+    },
+  },
+}

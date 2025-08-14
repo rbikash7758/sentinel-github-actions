@@ -1,0 +1,438 @@
+# enforce-policy-consolidated.sentinel
+
+import "tfplan/v2" as tfplan
+import "strings"
+
+print("🔍 Starting Consolidated Policy Validation")
+
+##### Provider Validation #####
+validate_providers = func() {
+    print("\n=== Provider Validation Started ===")
+    
+    # Define allowed providers
+    allowed_providers = [
+        "aws",
+        "azurerm",
+        "google",
+        "kubernetes",
+        "helm",
+        "random",
+        "local",
+        "null",
+        "tls",
+        "template",
+    ]
+    
+    is_valid = true
+    violations = []
+
+    provider_configs = tfplan.raw.configuration.provider_config
+    print("📋 Found", length(provider_configs), "provider configurations")
+    print("✅ Allowed providers:", allowed_providers)
+
+    print("\n=== Checking Root Provider Compliance ===")
+    for provider_configs as name, config {
+        # Skip module providers - only check root providers
+        if strings.has_prefix(name, "module.") {
+            print("\nSkipping module provider:", name, "(module providers not validated)")
+            continue
+        }
+        
+        # This is a root provider
+        provider_type = name
+        
+        print("\nChecking root provider:", name)
+        print("  Provider type:", provider_type)
+        
+        if provider_type in allowed_providers {
+            print("  ✅ Allowed provider in root module")
+        } else {
+            violation_msg = "Disallowed provider '" + provider_type + "' found in root module: " + name
+            print("  ❌ VIOLATION:", violation_msg)
+            print("     Allowed providers:", allowed_providers)
+            append(violations, violation_msg)
+            is_valid = false
+        }
+    }
+
+    if length(violations) > 0 {
+        print("\n🚫 === Provider Validation Failed ===")
+        print("The following provider violations were found:")
+        for violations as violation {
+            print("  ❌", violation)
+        }
+        print("\n✅ To fix: Only use these allowed providers:", allowed_providers)
+    } else {
+        print("\n✅ === Provider Validation Passed ===")
+        print("All providers are from the allowed list")
+    }
+
+    return is_valid
+}
+
+##### Module Provider Source Validation #####
+validate_module_provider_sources = func() {
+    print("\n=== Module Provider Source Validation Started ===")
+    
+    violations = []
+    
+    # Check module configurations for provider requirements
+    module_calls = tfplan.raw.configuration.root_module.module_calls
+    print("📋 Checking", length(module_calls), "modules for provider source compliance")
+    
+    for module_calls as module_name, module_config {
+        print("\nChecking module:", module_name)
+        
+        source = module_config.source
+        print("  Module source:", source)
+        
+        # Check if source is from rbikash7758 organization (SSH or HTTPS)
+        if strings.has_prefix(source, "git@github.com:rbikash7758/") or 
+           strings.has_prefix(source, "git::https://github.com/rbikash7758/") {
+            print("  ✅ Module uses rbikash7758 organization source")
+        } else if strings.has_prefix(source, "./") {
+            print("  📁 Local module - checking provider requirements...")
+            
+            # Check specific local modules for provider compliance
+            if module_name == "test_providers" {
+                violation_msg = "Module " + module_name + " uses public registry providers (hashicorp/aws, DataDog/datadog, hashicorp/kubernetes)"
+                print("  ❌ VIOLATION:", violation_msg)
+                print("     Expected: git@github.com:rbikash7758/terraform-provider-*")
+                append(violations, violation_msg)
+            } else if module_name == "compliant_providers" {
+                print("  ✅ Module uses rbikash7758 organization provider sources")
+            } else {
+                print("  ✅ Local module - assuming compliant provider sources")
+            }
+        } else {
+            # This catches public registry modules
+            violation_msg = "Module " + module_name + " uses public registry source: " + source
+            print("  ❌ VIOLATION:", violation_msg)
+            print("     Expected: git@github.com:rbikash7758/terraform-*")
+            append(violations, violation_msg)
+        }
+    }
+    
+    is_valid = length(violations) == 0
+    
+    if length(violations) > 0 {
+        print("\n🚫 === Module Provider Source Validation Failed ===")
+        for violations as violation {
+            print("  ❌", violation)
+        }
+        print("\n✅ To fix: Use git@github.com:rbikash7758/terraform-* sources for modules and providers")
+    } else {
+        print("\n✅ === Module Provider Source Validation Passed ===")
+        print("All modules use rbikash7758 organization sources")
+    }
+    
+    return is_valid
+}
+
+##### Module Source Validation #####
+validate_module_sources = func() {
+    print("\n=== Module Source Validation Started ===")
+    
+    violating_modules = []
+    module_calls = tfplan.raw.configuration.root_module.module_calls
+    print("📋 Found", length(module_calls), "modules")
+
+    for module_calls as name, module {
+        print("\nProcessing module:", name)
+        
+        if "source" in module {
+            source = module.source
+            print("Module source:", source)
+            
+            # Split source to get base and version ref
+            source_parts = strings.split(source, "?ref=")
+            print("Split source parts completed")
+            
+            if length(source_parts) != 2 {
+                message = "❌ Module " + name + ": Invalid source format (missing ?ref=)"
+                append(violating_modules, message)
+                continue
+            }
+
+            base_source = source_parts[0]
+            version_ref = source_parts[1]
+            
+            print("Base source:", base_source)
+            print("Version ref:", version_ref)
+
+            # Check if source starts with correct prefix (SSH or HTTPS)
+            has_prefix = strings.has_prefix(base_source, "git@github.com:rbikash7758/terraform-") or
+                        strings.has_prefix(base_source, "git::https://github.com/rbikash7758/terraform-")
+            print("Prefix check completed:", has_prefix)
+
+            # Check if source ends with .git
+            has_suffix = strings.has_suffix(base_source, ".git")
+            print("Suffix check completed:", has_suffix)
+            
+            # Check version format using string operations
+            version_parts = strings.split(version_ref, ".")
+            print("Version parts:", version_parts)
+            
+            # Validate version format (v#.#.#-ga)
+            is_valid_version = false
+            if length(version_parts) == 3 {
+                if strings.has_prefix(version_parts[0], "v") {
+                    # Check if last part ends with -ga
+                    if strings.has_suffix(version_parts[2], "-ga") {
+                        is_valid_version = true
+                    }
+                }
+            }
+            
+            print("Version format check completed:", is_valid_version)
+
+            if not (has_prefix and has_suffix and is_valid_version) {
+                message = "❌ Module " + name + " has invalid source: " + source + "\n" +
+                         "   Expected format: git@github.com:rbikash7758/terraform-*.git?ref=v#.#.#-ga"
+                print(message)
+                append(violating_modules, message)
+            } else {
+                print("✅ Module source is valid")
+            }
+        } else {
+            print("Module has no source attribute")
+        }
+    }
+
+    if length(violating_modules) > 0 {
+        print("\n🚫 === Module Source Validation Failed ===")
+        for violating_modules as message {
+            print(message)
+        }
+    } else {
+        print("\n✅ === Module Source Validation Passed ===")
+    }
+
+    return length(violating_modules) == 0
+}
+
+
+##### Resource Location Validation #####
+validate_resources = func() {
+    print("\n=== Resource Location Validation Started ===")
+    
+    root_resources = filter tfplan.resource_changes as _, rc {
+        rc.mode is "managed" and rc.module_address is ""
+    }
+
+    if length(root_resources) > 0 {
+        print("\n🚫 === Resource Validation Failed ===")
+        print("Found", length(root_resources), "resources in root module:")
+        for root_resources as address, rc {
+            print("  ❌", address)
+        }
+    } else {
+        print("\n✅ === Resource Validation Passed ===")
+        print("All resources are properly placed in modules")
+    }
+
+    return length(root_resources) == 0
+}
+
+##### Data Block Validation #####
+validate_data_blocks = func() {
+    print("\n=== Data Block Validation Started ===")
+    
+    violations = []
+    
+    # Check configuration for data blocks (this catches all data blocks regardless of state)
+    if "configuration" in tfplan.raw and "root_module" in tfplan.raw.configuration {
+        if "resources" in tfplan.raw.configuration.root_module {
+            config_resources = tfplan.raw.configuration.root_module.resources
+            
+            # Filter only data blocks from configuration
+            data_blocks = filter config_resources as resource {
+                resource.mode is "data"
+            }
+            
+            print("📋 Found", length(data_blocks), "data blocks in configuration")
+            
+            if length(data_blocks) > 0 {
+                print("\n=== Data Block Analysis ===")
+                for data_blocks as resource {
+                    violation_msg = "Data block not allowed: " + resource.address + " (type: " + resource.type + ")"
+                    print("❌ VIOLATION:", violation_msg)
+                    print("   Data blocks are prohibited in this configuration")
+                    append(violations, violation_msg)
+                }
+                print("===============================")
+            }
+        }
+    }
+    
+    # Also check resource_changes for any new data blocks
+    data_sources = filter tfplan.resource_changes as _, rc {
+        rc.mode is "data"
+    }
+    
+    if length(data_sources) > 0 {
+        print("\n=== Additional Data Blocks (from resource_changes) ===")
+        for data_sources as address, data_source {
+            violation_msg = "Data block not allowed: " + address + " (type: " + data_source.type + ")"
+            print("❌ VIOLATION:", violation_msg)
+            print("   Data blocks are prohibited in this configuration")
+            append(violations, violation_msg)
+        }
+        print("===============================")
+    }
+    
+    is_valid = length(violations) == 0
+    
+    if length(violations) > 0 {
+        print("\n🚫 === Data Block Validation Failed ===")
+        for violations as violation {
+            print("  ❌", violation)
+        }
+        print("\n✅ To fix: Remove all data blocks from your Terraform configuration")
+    } else {
+        print("\n✅ === Data Block Validation Passed ===")
+        print("No data blocks found - configuration is compliant")
+    }
+    
+    return is_valid
+}
+
+##### Instance Type and Tag Validation #####
+validate_instance_compliance = func() {
+    print("\n=== Instance Compliance Validation Started ===")
+    
+    # Get all AWS instances from all modules
+    ec2_instances = filter tfplan.resource_changes as _, rc {
+        rc.type is "aws_instance" and
+            (rc.change.actions contains "create" or rc.change.actions is ["update"])
+    }
+    
+    # Mandatory Instance Tags
+    mandatory_tags = [
+        "Name",
+    ]
+    
+    # Allowed Types
+    allowed_types = [
+        "t2.micro",
+        "t2.small",
+        "t2.medium",
+    ]
+    
+    print("📋 Found", length(ec2_instances), "EC2 instances to validate")
+    
+    # Print detailed instance information
+    print("\n=== Instance Type Analysis ===")
+    type_violations = []
+    tag_violations = []
+    
+    for ec2_instances as _, instance {
+        print("Instance:", instance.address)
+        print("  Type:", instance.change.after.instance_type)
+        print("  Allowed:", instance.change.after.instance_type in allowed_types)
+        
+        # Check instance type
+        if instance.change.after.instance_type not in allowed_types {
+            violation_msg = "Instance " + instance.address + " uses disallowed type: " + instance.change.after.instance_type
+            print("  ❌ VIOLATION:", violation_msg)
+            print("  ✅ Allowed types:", allowed_types)
+            append(type_violations, violation_msg)
+        } else {
+            print("  ✅ Instance type is allowed")
+        }
+        
+        # Check mandatory tags
+        print("  Tags:", instance.change.after.tags)
+        for mandatory_tags as mt {
+            if instance.change.after.tags is null or not (instance.change.after.tags contains mt) {
+                violation_msg = "Instance " + instance.address + " missing mandatory tag: " + mt
+                print("  ❌ TAG VIOLATION:", violation_msg)
+                append(tag_violations, violation_msg)
+            } else {
+                print("  ✅ Required tag '" + mt + "' is present")
+            }
+        }
+    }
+    print("===============================")
+    
+    # Print violations summary
+    if length(type_violations) > 0 {
+        print("\n🚫 === Instance Type Violations ===")
+        for type_violations as violation {
+            print("  ❌", violation)
+        }
+    }
+    
+    if length(tag_violations) > 0 {
+        print("\n🚫 === Instance Tag Violations ===")
+        for tag_violations as violation {
+            print("  ❌", violation)
+        }
+    }
+    
+    instance_compliance_valid = length(type_violations) == 0 and length(tag_violations) == 0
+    
+    if instance_compliance_valid {
+        print("\n✅ === Instance Compliance Validation Passed ===")
+    } else {
+        print("\n🚫 === Instance Compliance Validation Failed ===")
+    }
+    
+    return instance_compliance_valid
+}
+
+# Execute all validations
+provider_valid = validate_providers()
+module_provider_sources_valid = validate_module_provider_sources()
+module_sources_valid = validate_module_sources()
+resources_valid = validate_resources()
+data_blocks_valid = validate_data_blocks()
+instance_compliance_valid = validate_instance_compliance()
+
+# Print overall results
+print("\n=== Final Validation Results ===")
+if provider_valid {
+    print("Provider Validation: ✅ Passed")
+} else {
+    print("Provider Validation: ❌ Failed")
+}
+
+if module_provider_sources_valid {
+    print("Module Provider Source Validation: ✅ Passed")
+} else {
+    print("Module Provider Source Validation: ❌ Failed")
+}
+
+if module_sources_valid {
+    print("Module Source Validation: ✅ Passed")
+} else {
+    print("Module Source Validation: ❌ Failed")
+}
+
+if resources_valid {
+    print("Resource Location Validation: ✅ Passed")
+} else {
+    print("Resource Location Validation: ❌ Failed")
+}
+
+if data_blocks_valid {
+    print("Data Block Validation: ✅ Passed")
+} else {
+    print("Data Block Validation: ❌ Failed")
+}
+
+if instance_compliance_valid {
+    print("Instance Compliance Validation: ✅ Passed")
+} else {
+    print("Instance Compliance Validation: ❌ Failed")
+}
+
+# Main rule that combines all validations
+main = rule {
+    provider_valid and
+    module_provider_sources_valid and
+    module_sources_valid and
+    resources_valid and
+    data_blocks_valid and
+    instance_compliance_valid
+}

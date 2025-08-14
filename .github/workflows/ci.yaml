@@ -1,0 +1,147 @@
+name: "Terraform and Sentinel"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+      id-token: write
+      contents: read
+
+jobs:
+  terraform:
+    name: "Terraform and Sentinel"
+    runs-on: ubuntu-latest
+
+    env:
+      SENTINEL_VERSION: 0.26.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: rbikash7758/sentinel-cli-github-actions-tf
+          fetch-depth: 1
+          sparse-checkout-cone-mode: true
+
+      # Configure Git for HTTPS (no SSH keys needed for public repos)
+      - name: Configure Git
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git config --global url."https://".insteadOf "git://"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: v1.10.5
+
+      - name: Setup Sentinel
+        run: |
+          FILENAME="sentinel_${{ env.SENTINEL_VERSION }}_linux_amd64.zip"
+          wget "https://releases.hashicorp.com/sentinel/${{ env.SENTINEL_VERSION }}/$FILENAME"
+          unzip "$FILENAME" -d $HOME/bin
+          chmod +x $HOME/bin/sentinel
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          terraform plan -out=tfplan
+      
+      - name: Export Terraform Plan
+        run: |
+          terraform show -json tfplan | jq > ./sentinel-policies/tfplan.json
+
+      - name: Test Sentinel Policies
+        id: sentinel_test
+        run: |
+            cd sentinel-policies
+            
+            # Run Sentinel unit tests first
+            echo "🧪 Running Sentinel unit tests..."
+            if sentinel test enforce-policy-consolidated.sentinel; then
+              echo "✅ All Sentinel tests passed"
+              TEST_RESULT=0
+            else
+              echo "❌ Sentinel tests failed"
+              echo "::error::Sentinel unit tests failed"
+              TEST_RESULT=1
+            fi
+            
+            # Store test result
+            echo "test_status=$TEST_RESULT" >> $GITHUB_OUTPUT
+
+      - name: Apply Sentinel Policies
+        id: sentinel_apply
+        if: steps.sentinel_test.outputs.test_status == '0'
+        run: |
+            cd sentinel-policies
+            
+            # Run the consolidated policy with trace
+            echo "🔍 Evaluating consolidated policy against real Terraform plan..."
+            if sentinel apply -trace enforce-policy-consolidated.sentinel; then
+              CONSOLIDATED_RESULT=0
+              echo "✅ Consolidated policy passed successfully"
+            else
+              CONSOLIDATED_RESULT=1
+              echo "❌ Consolidated policy check failed"
+              echo "::error::Consolidated policy check failed"
+            fi
+            
+            # Store the result
+            if [ $CONSOLIDATED_RESULT -eq 0 ]; then
+              echo "status=success" >> $GITHUB_OUTPUT
+              echo "message=All policies passed" >> $GITHUB_OUTPUT
+            else
+              echo "status=failure" >> $GITHUB_OUTPUT
+              echo "message=Consolidated policy check failed" >> $GITHUB_OUTPUT
+            fi
+
+      - name: Take actions based on results
+        id: action_results
+        run: |
+            echo "📊 Checking Sentinel results..."
+            
+            # Check if tests failed
+            if [ "${{ steps.sentinel_test.outputs.test_status }}" != "0" ]; then
+              echo "❌ Sentinel unit tests failed"
+              echo "Stopping workflow due to test failures"
+              exit 1
+            fi
+            
+            # Check if policy application failed
+            if [ "${{ steps.sentinel_apply.outputs.status }}" == "success" ]; then
+              echo "✅ All Sentinel checks passed successfully"
+              echo "  - Unit tests: ✅ Passed"
+              echo "  - Policy validation: ✅ Passed"
+              echo "Message: ${{ steps.sentinel_apply.outputs.message }}"
+              echo "Proceeding with terraform apply"
+            else
+              echo "❌ Sentinel policy validation failed"
+              echo "Message: ${{ steps.sentinel_apply.outputs.message }}"
+              echo "Stopping workflow due to policy violations"
+              exit 1
+            fi
+
+      - name: Terraform Apply
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        if: |
+          github.ref == 'refs/heads/main' && 
+          github.event_name == 'push' && 
+          steps.sentinel_apply.outputs.status == 'success'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f tfplan
+          rm -f ./sentinel/tfplan.json
