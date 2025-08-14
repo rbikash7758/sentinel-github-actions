@@ -21,16 +21,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: rbikash7758/sentinel-cli-github-actions-tf
-          fetch-depth: 1
-          sparse-checkout-cone-mode: true
-
-      # Configure Git for HTTPS (no SSH keys needed for public repos)
-      - name: Configure Git
-        run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git config --global url."https://".insteadOf "git://"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
