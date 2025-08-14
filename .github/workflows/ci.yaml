@@ -26,25 +26,30 @@ jobs:
       # Configure git credentials for private module access
       - name: Configure Git Credentials
         run: |
-          git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: v1.10.5
+          terraform_version: 1.10.5
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Setup Sentinel
         run: |
-          FILENAME="sentinel_${{ env.SENTINEL_VERSION }}_linux_amd64.zip"
-          wget "https://releases.hashicorp.com/sentinel/${{ env.SENTINEL_VERSION }}/$FILENAME"
+          FILENAME="sentinel_${SENTINEL_VERSION}_linux_amd64.zip"
+          wget "https://releases.hashicorp.com/sentinel/${SENTINEL_VERSION}/$FILENAME"
           unzip "$FILENAME" -d $HOME/bin
           chmod +x $HOME/bin/sentinel
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # Step 4: Initialize Terraform
+      # Initialize Terraform with proper authentication
       - name: Terraform Init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: terraform init
 
       # Step 5: Create Terraform Plan
