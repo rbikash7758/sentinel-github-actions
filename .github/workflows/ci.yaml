@@ -1,7 +1,5 @@
-# Main Workflow Configuration
 name: "Terraform and Sentinel"
 
-# Trigger Events
 on:
   push:
     branches:
@@ -9,34 +7,34 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Required Permissions
 permissions:
   id-token: write
   contents: read
 
-# Job Definitions
 jobs:
   terraform:
     name: "Terraform and Sentinel"
     runs-on: ubuntu-latest
 
-    # Environment Variables
     env:
       SENTINEL_VERSION: 0.26.2
 
-    # Workflow Steps
     steps:
-      # Step 1: Checkout Repository
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Step 2: Setup Terraform
+      # Configure git credentials for private module access
+      - name: Configure Git Credentials
+        run: |
+          git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: v1.10.5
 
-      # Step 3: Setup Sentinel
       - name: Setup Sentinel
         run: |
           FILENAME="sentinel_${{ env.SENTINEL_VERSION }}_linux_amd64.zip"
